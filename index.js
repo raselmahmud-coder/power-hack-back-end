@@ -108,7 +108,7 @@ async function run() {
     res.send({ response: "success", status: 200 });
   });
   // get all info
-  app.get("/billing-list", verifyJWT, async (req, res) => {
+  app.get("/billing-list", async (req, res) => {
     const header = req.headers;
     //   console.log("header",header);
     const query = {};
