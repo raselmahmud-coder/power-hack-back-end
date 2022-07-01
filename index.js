@@ -15,30 +15,34 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`power hacks app listening on port ${port}`);
 });
-
-const { MongoClient, ServerApiVersion } = require("mongodb");
+//  auth verify function using Json web token
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  //   console.log(req?.headers, "headers");
+  if (!authHeader) {
+    return res.status(401).send({ message: "Unauthorized access request" });
+  }
+  const token = authHeader.split(" ")[1];
+  // console.log("token",token);
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    // console.log("error", err);
+    if (err) {
+      return res.status(403).send({ message: "Forbidden access" });
+    } else {
+      //   console.log("deCoded", decoded);
+      req.decoded = decoded;
+      next();
+    }
+  });
+}
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `${process.env.URI}`;
 const client = new MongoClient(uri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
   serverApi: ServerApiVersion.v1,
 });
-function verifyJWT(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).send({ message: "UnAuthorized Access" });
-  }
-  const token = authHeader.split(" ")[1];
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
-    if (err) {
-      return res.status(403).send({ message: "Forbidden Access" });
-    }
-    req.decoded = decoded;
-    next();
-    // console.log("error", err);
-    // console.log("decoded", decoded);
-  });
-}
+
 async function run() {
   client.connect((err) => {
     if (err) {
@@ -71,38 +75,71 @@ async function run() {
     }
   });
   // user creation
-  app.post("/registration", async (req, res) => {
+  app.post("/registration", verifyJWT, async (req, res) => {
     const addUser = req.body;
     await userCollection.insertOne(addUser);
-    console.log("user", addUser);
+    // console.log("user", addUser);
     res.send({ response: "success", status: 200 });
   });
-
-  // get all info
-  app.get("/billing-list", async (req, res) => {
-    const header = req.headers;
-    const query = {};
-    const options = {
-      sort: { title: 1 },
-      projection: { _id: 0, title: 1, imdb: 1 },
+  // update data
+  app.put("/update-billing/:id", verifyJWT, async (req, res) => {
+    const { id } = req.params;
+    const { name, email, phone, paidAmount } = req.body;
+    const query = { _id: ObjectId(id) };
+    const options = { upsert: true };
+    const updateDoc = {
+      $set: { name, email, phone, paidAmount },
     };
-    const cursor = await billingsCollection.find(query).toArray();
-    /* if ((await cursor.count()) === 0) {
-            console.log("No documents found!");
-        } */
-    // console.log(cursor);
-    res.send(cursor);
+    const result = await billingsCollection.updateOne(
+      query,
+      updateDoc,
+      options
+    );
+    console.log("udpate", result);
+    res.send({ response: "success", status: 200 });
+  });
+  // delete data
+  app.delete("/delete-billing/:id", verifyJWT, async (req, res) => {
+    const { id } = req.params;
+    const query = { _id: ObjectId(id) };
+
+    const result = await billingsCollection.deleteOne(query);
+    console.log("udpate", result);
+    res.send({ response: "success", status: 200 });
+  });
+  // get all info
+  app.get("/billing-list", verifyJWT, async (req, res) => {
+    const header = req.headers;
+    //   console.log("header",header);
+    const query = {};
+    const limit = parseInt(1);
+    const offset = parseInt(limit + 9);
+
+    if (header.date) {
+      const result = await await billingsCollection
+        .find(query)
+        .skip(header.date)
+        .toArray();
+    }
+    const result = await await billingsCollection.find(query).toArray();
+    console.log("result", result);
+    const countCollection = await billingsCollection.countDocuments();
+
+    const totalPages = Math.ceil(countCollection / limit);
+    const currentPage = Math.ceil(countCollection % offset);
+    console.log(currentPage, "current page", totalPages, "total");
+    res.send({ response: result, totalPages, currentPage });
   });
 
   // post a bill info
-  app.post("/add-billing", async (req, res) => {
+  app.post("/add-billing", verifyJWT, async (req, res) => {
     const addBilling = req.body;
-    // const result = await billingsCollection.insertOne(addBilling);
+    const result = await billingsCollection.insertOne(addBilling);
 
-    // if (result) {
-    // }
-    res.send({ response: "success", status: 200 });
-    // console.log("billing",addBilling);
+    if (result) {
+      res.send({ response: "success", status: 200 });
+      console.log("billing", addBilling);
+    }
   });
 }
 run().catch(console.dir);
